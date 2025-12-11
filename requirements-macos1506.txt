@@ -1,0 +1,9 @@
+# Requirements for macOS 15.06 compatibility
+# Use this file if you get "requires macOS 15.07" errors
+
+pyautogui
+pillow
+pyobjc-core<12.0
+pyobjc-framework-Cocoa<12.0
+pyobjc-framework-Quartz<12.0
+

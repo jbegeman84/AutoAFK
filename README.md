@@ -15,7 +15,7 @@ A macOS desktop utility that automates simple on-screen actions for Roblox gamep
 ### Prerequisites
 
 - **Python 3.10+** (required)
-- macOS (M1/M2/M3 compatible)
+- macOS 15.06+ (M1/M2/M3 compatible)
 
 ### Setup Steps
 
@@ -26,9 +26,18 @@ A macOS desktop utility that automates simple on-screen actions for Roblox gamep
    ```
 
 2. Install dependencies:
+   
+   **For macOS 15.07+**:
    ```bash
    pip install -r requirements.txt
    ```
+   
+   **For macOS 15.06** (if you get "requires macOS 15.07" error):
+   ```bash
+   pip install -r requirements-macos1506.txt
+   ```
+   
+   This installs compatible versions of pyobjc that work with macOS 15.06.
 
 3. Grant macOS permissions (required for screen interaction):
    - Open **System Settings** → **Privacy & Security**
