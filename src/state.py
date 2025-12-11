@@ -57,6 +57,12 @@ class AppState:
         self.chop_duration: float = 20.0
         """Auto-chop duration in seconds."""
         
+        self.chop_running: bool = False
+        """True while auto-chop worker is active."""
+        
+        self.chop_worker_thread: Optional[object] = None
+        """Thread handle for auto-chop worker."""
+        
         # Status
         self.status_message: str = "Ready"
         """Current status message displayed in the status bar."""

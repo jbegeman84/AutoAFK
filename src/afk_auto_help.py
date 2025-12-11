@@ -255,13 +255,13 @@ class AFKAutoHelpApp:
         )
         record_chop_button.pack(pady=5)
         
-        # Start Auto-Chop button
-        start_chop_button = ttk.Button(
+        # Start/Stop Auto-Chop button
+        self.auto_chop_button = ttk.Button(
             self.chop_frame,
             text="Start Auto-Chop",
-            command=self._on_start_auto_chop
+            command=self._on_auto_chop_button_pressed
         )
-        start_chop_button.pack(pady=5)
+        self.auto_chop_button.pack(pady=5)
         
         # Display saved trigger
         info_frame = ttk.Frame(self.chop_frame)
@@ -442,18 +442,90 @@ class AFKAutoHelpApp:
                 "Chop trigger selection cancelled"
             )
     
-    def _on_start_auto_chop(self):
-        """Handle Start Auto-Chop button click (placeholder)."""
-        # TODO: Phase 5 - Implement auto-chop automation
-        ui_elements.update_status_bar(
-            self.status_bar,
-            "Start Auto-Chop clicked (placeholder - Phase 5)"
-        )
+    def _on_auto_chop_button_pressed(self):
+        """Handle Auto-Chop button click (Start/Stop toggle)."""
+        if self.state.chop_running:
+            # This is a stop request
+            self.state.chop_running = False
+            self.state.stop_all_flag = True  # Also set global stop flag
+            ui_elements.update_status_bar(
+                self.status_bar,
+                "Stopping auto-chop..."
+            )
+            # Button text will be updated by on_chop_worker_finished()
+        else:
+            # This is a start request
+            # Validate required settings
+            if self.state.chop_trigger is None:
+                messagebox.showerror(
+                    "Missing Configuration",
+                    "Chop trigger coordinate is required.\n"
+                    "Please record a chop trigger first."
+                )
+                return
+            
+            if self.state.chop_click_rate <= 0:
+                messagebox.showerror(
+                    "Invalid Configuration",
+                    "Chop click rate must be greater than 0."
+                )
+                return
+            
+            if self.state.chop_duration <= 0:
+                messagebox.showerror(
+                    "Invalid Configuration",
+                    "Chop duration must be greater than 0."
+                )
+                return
+            
+            # Update state
+            self.state.chop_running = True
+            self.state.stop_all_flag = False  # Clear global stop flag
+            
+            # Update button text
+            self.auto_chop_button.config(text="Stop Auto-Chop")
+            
+            # Update status
+            ui_elements.update_status_bar(
+                self.status_bar,
+                "Preparing to auto-chop..."
+            )
+            
+            # Create and start worker thread
+            thread = threading.Thread(
+                target=worker_threads.auto_chop_worker,
+                args=(self, self.state),
+                daemon=True
+            )
+            self.state.chop_worker_thread = thread
+            thread.start()
+    
+    def on_chop_worker_finished(self):
+        """
+        Called by the auto-chop worker when it finishes.
+        Must be safe to call from a worker thread.
+        """
+        def _finish():
+            self.state.chop_running = False
+            self.state.chop_worker_thread = None
+            self.auto_chop_button.config(text="Start Auto-Chop")
+            self.safe_status_update("Auto-chop idle")
+        
+        self.root.after(0, _finish)
     
     def _on_chop_rate_changed(self):
         """Handle chop click rate entry change."""
         try:
             value = float(self.chop_rate_var.get())
+            # Clamp to sane range (minimum 0.1 clicks/sec)
+            if value < 0.1:
+                value = 0.1
+                self.chop_rate_var.set(str(value))
+                messagebox.showerror(
+                    "Invalid Value",
+                    "Chop click rate must be at least 0.1 clicks/sec. Value adjusted."
+                )
+            
             if value > 0:
                 self.state.chop_click_rate = value
                 ui_elements.update_status_bar(
@@ -461,14 +533,33 @@ class AFKAutoHelpApp:
                     f"Chop click rate set to: {value} clicks/sec"
                 )
             else:
-                ui_elements.update_status_bar(self.status_bar, "Chop click rate must be positive")
+                # Revert to previous valid value
+                self.chop_rate_var.set(str(self.state.chop_click_rate))
+                messagebox.showerror(
+                    "Invalid Value",
+                    "Chop click rate must be positive."
+                )
         except ValueError:
-            ui_elements.update_status_bar(self.status_bar, "Invalid chop click rate value")
+            # Revert to previous valid value
+            self.chop_rate_var.set(str(self.state.chop_click_rate))
+            messagebox.showerror(
+                "Invalid Value",
+                "Chop click rate must be a number."
+            )
     
     def _on_chop_duration_changed(self):
         """Handle chop duration entry change."""
         try:
             value = float(self.chop_duration_var.get())
+            # Clamp to sane range (minimum 1 second)
+            if value < 1.0:
+                value = 1.0
+                self.chop_duration_var.set(str(int(value)))
+                messagebox.showerror(
+                    "Invalid Value",
+                    "Chop duration must be at least 1 second. Value adjusted."
+                )
+            
             if value > 0:
                 self.state.chop_duration = value
                 ui_elements.update_status_bar(
@@ -476,9 +567,19 @@ class AFKAutoHelpApp:
                     f"Chop duration set to: {value} seconds"
                 )
             else:
-                ui_elements.update_status_bar(self.status_bar, "Chop duration must be positive")
+                # Revert to previous valid value
+                self.chop_duration_var.set(str(self.state.chop_duration))
+                messagebox.showerror(
+                    "Invalid Value",
+                    "Chop duration must be positive."
+                )
         except ValueError:
-            ui_elements.update_status_bar(self.status_bar, "Invalid chop duration value")
+            # Revert to previous valid value
+            self.chop_duration_var.set(str(self.state.chop_duration))
+            messagebox.showerror(
+                "Invalid Value",
+                "Chop duration must be a number."
+            )
     
     def _on_start_auto_feed(self):
         """Handle Start Auto-Feed button click."""
@@ -560,33 +661,48 @@ class AFKAutoHelpApp:
     
     def _on_stop_all(self):
         """Handle STOP ALL button click."""
-        # Check if a worker is running
-        if self.state.worker_thread is None:
+        # Check if any worker is running
+        has_worker = (self.state.worker_thread is not None) or (self.state.chop_worker_thread is not None)
+        
+        if not has_worker:
             ui_elements.update_status_bar(
                 self.status_bar,
                 "No worker thread running"
             )
             return
         
-        # Set stop flag
+        # Set stop flags for all workers
         self.state.stop_all_flag = True
+        self.state.chop_running = False  # Also stop auto-chop
+        
         ui_elements.update_status_bar(
             self.status_bar,
-            "Stopping..."
+            "Stopping all workers..."
         )
         
-        # Try to join the thread (with timeout)
+        # Try to join hunger feed worker thread (with timeout)
         if self.state.worker_thread is not None:
             try:
                 self.state.worker_thread.join(timeout=2.0)
             except Exception:
                 pass  # Thread may have already finished
+            self.state.worker_thread = None
         
-        # Reset worker thread reference
-        self.state.worker_thread = None
+        # Try to join auto-chop worker thread (with timeout)
+        if self.state.chop_worker_thread is not None:
+            try:
+                self.state.chop_worker_thread.join(timeout=2.0)
+            except Exception:
+                pass  # Thread may have already finished
+            self.state.chop_worker_thread = None
         
-        # Reset stop flag for next start
+        # Reset flags for next start
         self.state.stop_all_flag = False
+        self.state.chop_running = False
+        
+        # Update button text if auto-chop was running
+        if hasattr(self, 'auto_chop_button'):
+            self.auto_chop_button.config(text="Start Auto-Chop")
         
         ui_elements.update_status_bar(
             self.status_bar,

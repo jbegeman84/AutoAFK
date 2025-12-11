@@ -218,6 +218,65 @@ class HungerMonitorWorker(threading.Thread):
         self.state.stop_all_flag = True
 
 
+def auto_chop_worker(app, state):
+    """
+    Auto-chop worker thread function.
+    
+    Clicks at state.chop_trigger at a rate of state.chop_click_rate
+    for state.chop_duration seconds, or until stopped.
+    This runs in a background thread.
+    
+    Args:
+        app: AFKAutoHelpApp instance for safe UI updates
+        state: AppState instance with configuration
+    """
+    # Validate preconditions
+    if state.chop_trigger is None:
+        app.safe_status_update("Chop trigger not set")
+        app.on_chop_worker_finished()
+        return
+    
+    if state.chop_click_rate <= 0:
+        app.safe_status_update("Invalid chop click rate")
+        app.on_chop_worker_finished()
+        return
+    
+    if state.chop_duration <= 0:
+        app.safe_status_update("Invalid chop duration")
+        app.on_chop_worker_finished()
+        return
+    
+    try:
+        x, y = state.chop_trigger
+        click_interval = 1.0 / state.chop_click_rate
+        end_time = time.time() + state.chop_duration
+        
+        app.safe_status_update(f"Auto-chop started: {state.chop_click_rate} clicks/sec for {state.chop_duration}s")
+        
+        while time.time() < end_time:
+            # Check stop conditions
+            if state.stop_all_flag or not state.chop_running:
+                break
+            
+            # Perform click
+            pyautogui.click(x, y)
+            
+            # Sleep for the click interval
+            time.sleep(click_interval)
+        
+        # Worker finished
+        if state.stop_all_flag or not state.chop_running:
+            app.safe_status_update("Auto-chop stopped")
+        else:
+            app.safe_status_update("Auto-chop finished")
+        
+    except Exception as e:
+        app.safe_status_update(f"Error in auto-chop: {str(e)}")
+    finally:
+        # Always call finished callback
+        app.on_chop_worker_finished()
+
+
 class AutoChopWorker(threading.Thread):
     """
     Worker thread for auto-chop automation.
@@ -225,24 +284,23 @@ class AutoChopWorker(threading.Thread):
     Performs automated clicking at the chop trigger point.
     """
     
-    def __init__(self, app_state, callback=None):
+    def __init__(self, app, state):
         """
         Initialize the auto-chop worker.
         
         Args:
-            app_state: AppState instance with configuration
-            callback: Optional callback function for status updates
+            app: AFKAutoHelpApp instance
+            state: AppState instance with configuration
         """
-        super().__init__()
-        # TODO: Phase 5 - Initialize worker thread
-        pass
+        super().__init__(daemon=True)
+        self.app = app
+        self.state = state
     
     def run(self):
         """Execute the auto-chop clicking loop."""
-        # TODO: Phase 5 - Implement auto-chop logic
-        pass
+        auto_chop_worker(self.app, self.state)
     
     def stop(self):
         """Stop the worker thread gracefully."""
-        # TODO: Phase 5 - Implement thread stopping logic
-        pass
+        self.state.chop_running = False
+        self.state.stop_all_flag = True
